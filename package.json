@@ -1,7 +1,7 @@
 {
-  "name": "interactive-shell-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for interactive shell sessions",
+  "name": "interactive-shell-mcp-viewer",
+  "version": "1.1.0",
+  "description": "MCP server for interactive shell sessions, with a live browser viewer for watching and taking over the AI's PTY sessions in real time",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
@@ -9,9 +9,11 @@
     "dev": "tsc && node dist/server.js"
   },
   "dependencies": {
-    "node-pty": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "uuid": "^9.0.0"
+    "@types/ws": "^8.18.1",
+    "node-pty": "^1.1.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -22,8 +24,15 @@
     "mcp",
     "shell",
     "pty",
-    "interactive"
+    "interactive",
+    "viewer",
+    "xterm",
+    "terminal"
   ],
-  "author": "",
-  "license": "MIT"
+  "author": "twmoon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twmoon/interactive-shell-mcp-viewer.git"
+  }
 }

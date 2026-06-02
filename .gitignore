@@ -74,3 +74,10 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Viewer runtime (contains the access token — must never be committed)
+viewer-url.txt
+*.token
+
+# OMC state
+.omc/

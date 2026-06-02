@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interactive Shell — Live Viewer</title>
+  <link rel="stylesheet" href="/vendor/xterm.min.css" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0d1117; color: #c9d1d9;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    #app { display: flex; height: 100vh; }
+    #side { width: 240px; flex: none; border-right: 1px solid #21262d; overflow-y: auto;
+      background: #010409; }
+    #side h1 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+      color: #8b949e; padding: 12px 14px; margin: 0; border-bottom: 1px solid #21262d; }
+    .sess { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #161b22; }
+    .sess:hover { background: #161b22; }
+    .sess.active { background: #1f6feb22; border-left: 2px solid #1f6feb; }
+    .sess .id { color: #58a6ff; word-break: break-all; }
+    .sess .meta { color: #6e7681; font-size: 11px; margin-top: 2px; }
+    .empty { padding: 14px; color: #6e7681; }
+    #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #bar { padding: 8px 14px; border-bottom: 1px solid #21262d; display: flex;
+      align-items: center; gap: 12px; background: #010409; }
+    #status { color: #6e7681; }
+    #status.live { color: #3fb950; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #6e7681; margin-right: 6px; vertical-align: middle; }
+    #status.live .dot { background: #3fb950; }
+    #term { flex: 1; padding: 8px; overflow: hidden; }
+    .hint { color: #6e7681; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="side">
+      <h1>Sessions</h1>
+      <div id="list"><div class="empty">no active sessions</div></div>
+    </aside>
+    <section id="main">
+      <div id="bar">
+        <span id="status"><span class="dot"></span>disconnected</span>
+        <span class="hint">click a session to attach · type to take over</span>
+      </div>
+      <div id="term"></div>
+    </section>
+  </div>
+
+  <script src="/vendor/xterm.min.js"></script>
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const q = (s) => 'token=' + encodeURIComponent(token) + s;
+
+    const term = new Terminal({
+      cols: 120, rows: 40, scrollback: 5000, cursorBlink: true,
+      fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: 13,
+      theme: { background: '#0d1117', foreground: '#c9d1d9' },
+    });
+    term.open(document.getElementById('term'));
+    term.write('\x1b[90mattach a session from the left to start watching\x1b[0m\r\n');
+
+    let ws = null;
+    let activeId = null;
+    const statusEl = document.getElementById('status');
+
+    function setStatus(live, text) {
+      statusEl.className = live ? 'live' : '';
+      statusEl.innerHTML = '<span class="dot"></span>' + text;
+    }
+
+    function attach(id) {
+      if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+      activeId = id;
+      term.reset();
+      setStatus(false, 'connecting…');
+      ws = new WebSocket('ws://' + location.host + '/ws?' + q('&session=' + encodeURIComponent(id)));
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => setStatus(true, 'live · ' + id.slice(0, 8));
+      ws.onclose = () => { if (activeId === id) setStatus(false, 'disconnected'); };
+      ws.onerror = () => setStatus(false, 'error');
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          try {
+            const m = JSON.parse(e.data);
+            if (m.type === 'end') { term.write('\r\n\x1b[91m[session ended]\x1b[0m\r\n'); setStatus(false, 'ended'); }
+          } catch (err) {}
+        } else {
+          term.write(new Uint8Array(e.data));
+        }
+      };
+    }
+
+    term.onData((d) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data: d }));
+      }
+    });
+
+    async function refresh() {
+      let sessions = [];
+      try {
+        const r = await fetch('/sessions?' + q(''));
+        if (r.ok) sessions = await r.json();
+      } catch (e) {}
+      const list = document.getElementById('list');
+      if (!sessions.length) {
+        list.innerHTML = '<div class="empty">no active sessions</div>';
+        return;
+      }
+      list.innerHTML = '';
+      for (const s of sessions) {
+        const el = document.createElement('div');
+        el.className = 'sess' + (s.id === activeId ? ' active' : '');
+        const ago = Math.round((Date.now() - s.startedAt) / 1000);
+        el.innerHTML = '<div class="id">' + s.id.slice(0, 8) + '</div>' +
+          '<div class="meta">' + s.shell + ' · ' + ago + 's · ' + s.viewers + ' watching</div>';
+        el.onclick = () => { attach(s.id); refresh(); };
+        list.appendChild(el);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

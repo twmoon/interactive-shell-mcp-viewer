@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import * as pty from 'node-pty';
 import { v4 as uuidv4 } from 'uuid';
+import { ViewerServer } from './viewer.js';
 
 const DEFAULT_MAX_BUFFER_SIZE = 1024 * 1024; // 1MB default limit
 const SNAPSHOT_INTERVAL_MS = 100; // Minimum time between snapshots
@@ -27,6 +28,7 @@ interface ShellSession {
 class InteractiveShellServer {
   private server: Server;
   private sessions: Map<string, ShellSession> = new Map();
+  private viewer = new ViewerServer();
 
   constructor() {
     this.server = new Server(
@@ -178,8 +180,9 @@ class InteractiveShellServer {
 
   private async startShellSession(): Promise<any> {
     const sessionId = uuidv4();
-    
-    const ptyProcess = pty.spawn(process.platform === 'win32' ? 'powershell.exe' : 'bash', [], {
+    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+
+    const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-color',
       cols: 120,
       rows: 40,
@@ -199,7 +202,8 @@ class InteractiveShellServer {
 
     ptyProcess.onData((data) => {
       session.totalBytesReceived += data.length;
-      
+      this.viewer.broadcast(sessionId, data);
+
       // Always append to buffer first
       if (session.outputBuffer.length + data.length > session.maxBufferSize) {
         // Calculate exact amount to keep to stay within limit
@@ -226,9 +230,11 @@ class InteractiveShellServer {
 
     ptyProcess.onExit(() => {
       this.sessions.delete(sessionId);
+      this.viewer.removeSession(sessionId);
     });
 
     this.sessions.set(sessionId, session);
+    this.viewer.addSession(sessionId, ptyProcess, shell);
 
     return {
       content: [
@@ -380,6 +386,7 @@ class InteractiveShellServer {
 
     session.ptyProcess.kill();
     this.sessions.delete(sessionId);
+    this.viewer.removeSession(sessionId);
 
     return {
       content: [
@@ -419,6 +426,7 @@ class InteractiveShellServer {
   }
 
   async run(): Promise<void> {
+    this.viewer.start();
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error('Interactive Shell MCP server running on stdio');
