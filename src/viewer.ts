@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import type { Duplex } from 'stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IPty } from 'node-pty';
+import * as registry from './registry.js';
 
 const REPLAY_LIMIT = 256 * 1024; // scrollback sent to a viewer that joins mid-session
 
@@ -30,6 +31,7 @@ const MIME: Record<string, string> = {
 export class ViewerServer {
   private sessions = new Map<string, ViewerSession>();
   private wss?: WebSocketServer;
+  private server?: http.Server;
   private viewerDir: string;
   readonly token: string;
   readonly enabled: boolean;
@@ -42,35 +44,40 @@ export class ViewerServer {
     this.viewerDir = path.join(__dirname, '..', 'viewer');
   }
 
+  // This is now a *backend* viewer: it binds an ephemeral port and registers
+  // itself so the leader-elected hub (port 7682) can aggregate and proxy to it.
+  // It no longer fights for 7682 and no longer writes viewer-url.txt — the hub
+  // owns the public URL. The backend still serves its own sessions directly,
+  // which keeps the hub→backend proxy uniform (the hub talks to it like a peer).
   start(): void {
     if (!this.enabled) return;
     this.wss = new WebSocketServer({ noServer: true });
 
     const server = http.createServer((req, res) => this.handleHttp(req, res));
     server.on('upgrade', (req, socket, head) => this.handleUpgrade(req, socket, head));
+    this.server = server;
 
-    const basePort = parseInt(process.env.ISH_VIEWER_PORT || '7682', 10);
-    this.listen(server, basePort, basePort + 8);
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      console.error('[viewer-backend] socket error:', err.message);
+    });
+    // Port 0 → OS picks a free ephemeral port; ISH_VIEWER_PORT can pin it (tests).
+    const fixed = parseInt(process.env.ISH_VIEWER_PORT || '0', 10) || 0;
+    server.listen(fixed, '127.0.0.1', () => {
+      const addr = server.address();
+      this.port = typeof addr === 'object' && addr ? addr.port : fixed;
+      this.url = `http://127.0.0.1:${this.port}/?token=${this.token}`;
+      registry.writeEntry({ pid: process.pid, port: this.port, token: this.token });
+      console.error(`[viewer-backend] pid=${process.pid} port=${this.port} (registered)`);
+    });
   }
 
-  private listen(server: http.Server, port: number, maxPort: number): void {
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && port < maxPort) {
-        this.listen(server, port + 1, maxPort);
-      } else {
-        console.error('[viewer] disabled — could not bind a port:', err.message);
-      }
-    });
-    server.listen(port, '127.0.0.1', () => {
-      this.port = port;
-      this.url = `http://127.0.0.1:${port}/?token=${this.token}`;
-      console.error(`[viewer] live terminal at ${this.url}`);
-      try {
-        fs.writeFileSync(path.join(__dirname, '..', 'viewer-url.txt'), this.url + '\n');
-      } catch {
-        /* best-effort */
-      }
-    });
+  stop(): void {
+    registry.removeEntry(process.pid);
+    try {
+      this.server?.close();
+    } catch {
+      /* ignore */
+    }
   }
 
   addSession(id: string, pty: IPty, shell: string): void {

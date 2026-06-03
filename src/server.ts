@@ -9,6 +9,8 @@ import {
 import * as pty from 'node-pty';
 import { v4 as uuidv4 } from 'uuid';
 import { ViewerServer } from './viewer.js';
+import { HubServer } from './hub.js';
+import * as registry from './registry.js';
 
 const DEFAULT_MAX_BUFFER_SIZE = 1024 * 1024; // 1MB default limit
 const SNAPSHOT_INTERVAL_MS = 100; // Minimum time between snapshots
@@ -29,6 +31,7 @@ class InteractiveShellServer {
   private server: Server;
   private sessions: Map<string, ShellSession> = new Map();
   private viewer = new ViewerServer();
+  private hub = new HubServer(this.viewer.token);
 
   constructor() {
     this.server = new Server(
@@ -412,6 +415,16 @@ class InteractiveShellServer {
       await this.cleanup();
       process.exit(0);
     });
+
+    // Last-ditch synchronous removal of our registry entry; listEntries() also
+    // prunes dead pids, so a missed removal self-heals on the next aggregation.
+    process.on('exit', () => {
+      try {
+        registry.removeEntry(process.pid);
+      } catch {
+        /* ignore */
+      }
+    });
   }
 
   private async cleanup(): Promise<void> {
@@ -423,10 +436,13 @@ class InteractiveShellServer {
       }
     }
     this.sessions.clear();
+    this.viewer.stop();
+    this.hub.stop();
   }
 
   async run(): Promise<void> {
     this.viewer.start();
+    this.hub.tryStart();
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error('Interactive Shell MCP server running on stdio');

@@ -79,5 +79,8 @@ temp/
 viewer-url.txt
 *.token
 
+# Hub instance registry (per-process pid/port/token files — runtime only)
+.registry/
+
 # OMC state
 .omc/
