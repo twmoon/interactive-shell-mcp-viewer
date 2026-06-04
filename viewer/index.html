@@ -15,11 +15,17 @@
       background: #010409; }
     #side h1 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
       color: #8b949e; padding: 12px 14px; margin: 0; border-bottom: 1px solid #21262d; }
-    .sess { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #161b22; }
+    .sess { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #161b22;
+      display: flex; align-items: center; gap: 8px; }
     .sess:hover { background: #161b22; }
     .sess.active { background: #1f6feb22; border-left: 2px solid #1f6feb; }
+    .sess .info { flex: 1; min-width: 0; }
     .sess .id { color: #58a6ff; word-break: break-all; }
     .sess .meta { color: #6e7681; font-size: 11px; margin-top: 2px; }
+    .kill { flex: none; border: none; background: transparent; color: #6e7681;
+      cursor: pointer; font-size: 14px; line-height: 1; padding: 4px 7px;
+      border-radius: 4px; transition: background .1s, color .1s; }
+    .kill:hover { background: #da363322; color: #f85149; }
     .empty { padding: 14px; color: #6e7681; }
     #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
     #bar { padding: 8px 14px; border-bottom: 1px solid #21262d; display: flex;
@@ -115,6 +121,19 @@
       }
     });
 
+    async function killSession(id) {
+      if (!confirm('End session ' + id.slice(0, 8) + '?')) return;
+      try {
+        await fetch('/kill?' + q('&session=' + encodeURIComponent(id)), { method: 'POST' });
+      } catch (e) {}
+      if (activeId === id) {
+        if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+        activeId = null;
+        setStatus(false, 'ended');
+      }
+      refresh();
+    }
+
     async function refresh() {
       let sessions = [];
       try {
@@ -131,9 +150,21 @@
         const el = document.createElement('div');
         el.className = 'sess' + (s.id === activeId ? ' active' : '');
         const ago = Math.round((Date.now() - s.startedAt) / 1000);
-        el.innerHTML = '<div class="id">' + s.id.slice(0, 8) + '</div>' +
+
+        const info = document.createElement('div');
+        info.className = 'info';
+        info.innerHTML = '<div class="id">' + s.id.slice(0, 8) + '</div>' +
           '<div class="meta">' + s.shell + ' · ' + ago + 's · ' + s.viewers + ' watching</div>';
-        el.onclick = () => { attach(s.id); refresh(); };
+        info.onclick = () => { attach(s.id); refresh(); };
+
+        const kill = document.createElement('button');
+        kill.className = 'kill';
+        kill.textContent = '✕';
+        kill.title = 'end session';
+        kill.onclick = (ev) => { ev.stopPropagation(); killSession(s.id); };
+
+        el.appendChild(info);
+        el.appendChild(kill);
         list.appendChild(el);
       }
     }

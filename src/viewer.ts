@@ -153,6 +153,27 @@ export class ViewerServer {
       return;
     }
 
+    // Kill a PTY this backend owns. Killing the pty fires the MCP server's
+    // onExit, which calls removeSession() to notify viewers and drop the entry.
+    if (u.pathname === '/kill') {
+      if (req.method !== 'POST') {
+        res.writeHead(405).end('method not allowed');
+        return;
+      }
+      const s = this.sessions.get(u.searchParams.get('session') || '');
+      if (!s) {
+        res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: false }));
+        return;
+      }
+      try {
+        s.pty.kill();
+      } catch {
+        /* ignore — process may already be gone */
+      }
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: true }));
+      return;
+    }
+
     res.writeHead(404).end('not found');
   }
 

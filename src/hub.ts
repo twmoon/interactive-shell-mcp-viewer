@@ -152,6 +152,22 @@ export class HubServer {
       return;
     }
 
+    // Route a kill to the backend that owns the session, just like /ws.
+    if (u.pathname === '/kill') {
+      if (req.method !== 'POST') {
+        res.writeHead(405).end('method not allowed');
+        return;
+      }
+      this.killSession(u.searchParams.get('session') || '')
+        .then((ok) => {
+          res.writeHead(ok ? 200 : 404, { 'content-type': 'application/json' }).end(JSON.stringify({ ok }));
+        })
+        .catch(() => {
+          res.writeHead(502, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: false }));
+        });
+      return;
+    }
+
     res.writeHead(404).end('not found');
   }
 
@@ -221,6 +237,42 @@ export class HubServer {
         resolve([]);
       });
       req.on('error', () => resolve([]));
+    });
+  }
+
+  // --------------------------------------------------------------- kill
+
+  // Find the backend that owns the session (re-aggregating once if the owner
+  // map is stale) and POST /kill to it.
+  private async killSession(sessionId: string): Promise<boolean> {
+    if (!sessionId) return false;
+    let owner = this.owners.get(sessionId);
+    if (!owner) {
+      await this.aggregate();
+      owner = this.owners.get(sessionId);
+    }
+    if (!owner) return false;
+    return this.postKill(owner, sessionId);
+  }
+
+  private postKill(owner: Owner, sessionId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const reqPath =
+        `/kill?token=${encodeURIComponent(owner.token)}&session=${encodeURIComponent(sessionId)}`;
+      const req = http.request(
+        { host: '127.0.0.1', port: owner.port, path: reqPath, method: 'POST' },
+        (res) => {
+          const ok = res.statusCode === 200;
+          res.resume();
+          resolve(ok);
+        }
+      );
+      req.setTimeout(1500, () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.on('error', () => resolve(false));
+      req.end();
     });
   }
 

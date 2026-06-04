@@ -43,8 +43,9 @@ session, much like `screen -x` / `tmux attach`, but **Windows-native**
 - Raw input mode for interactive selection prompts
 - Configurable output size limits to prevent memory overflow
 - Automatic detection of terminal control sequences
-- **Live browser viewer** — watch every session live and take
-  over the keyboard at any time (Windows-native, no WSL/tmux)
+- **Live browser viewer** — watch every session live, take
+  over the keyboard at any time, and end any session straight
+  from the sidebar (Windows-native, no WSL/tmux)
 
 ## Available Tools
 
@@ -247,6 +248,11 @@ sessions live and type into them yourself.
 - A rolling replay buffer (last 256 KB per session) is sent to any
   viewer that attaches mid-session, so you see recent scrollback
   immediately.
+- **End a session from the browser** — every session in the sidebar
+  has an `✕` button. Clicking it (after a confirm prompt) kills that
+  PTY: the request is routed to the MCP instance that owns the
+  session, and the child process tree is reaped, so the entry
+  disappears for every connected viewer.
 - Bound to `127.0.0.1` only and protected by a per-process token;
   the viewer is never exposed off the local machine.
 
